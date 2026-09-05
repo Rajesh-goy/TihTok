@@ -30,13 +30,8 @@ jobs:
       - name: Decompile (smali only, keep original resources)
         run: java -jar apktool.jar d -f -r -o decoded app.apk
 
-      - name: Apply mods (overlay mods/ onto decoded/)
-        run: |
-          if [ -d mods ]; then
-            cp -av mods/. decoded/
-          else
-            echo "No mods directory — building unmodded"
-          fi
+      - name: Apply mods (anchor-based smali patches)
+        run: python3 mods/apply_mods.py decoded
 
       - name: Build with apktool (original resources.arsc preserved)
         run: |
@@ -63,12 +58,18 @@ jobs:
             --out dist/TihTok-modded.apk dist/tihtok-modded-aligned.apk
           apksigner verify --print-certs dist/TihTok-modded.apk
 
-      - name: Upload built APK to release
+      - name: Upload built APK to release (replace existing)
         run: |
-          UPLOAD_URL=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases/latest \
-            | jq -r '.upload_url' | sed 's/{.*}//')
-          curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          API="https://api.github.com/repos/${{ github.repository }}"
+          AUTH="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
+          curl -fsSL -H "$AUTH" $API/releases/latest -o rel.json
+          UPLOAD_URL=$(jq -r '.upload_url' rel.json | sed 's/{.*}//')
+          ASSET_ID=$(jq -r '.assets[] | select(.name == "TihTok-modded.apk") | .id' rel.json)
+          if [ -n "$ASSET_ID" ] && [ "$ASSET_ID" != "null" ]; then
+            echo "Deleting old asset $ASSET_ID"
+            curl -fsS -X DELETE -H "$AUTH" "$API/releases/assets/$ASSET_ID"
+          fi
+          curl -fsS -X POST -H "$AUTH" \
             -H "Content-Type: application/vnd.android.package-archive" \
             --data-binary @dist/TihTok-modded.apk \
             "${UPLOAD_URL}?name=TihTok-modded.apk"
