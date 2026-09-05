@@ -94,6 +94,8 @@ def patch_0izS(root):
     p = os.path.join(root, "smali_classes31/X/0izS.smali")
     lines = read(p)
     # 1) Override every region static with "US" at the end of <clinit>
+    #    + force en_US locale and America/New_York timezone process-wide
+    #    (this clinit runs very early: first region query during app init)
     insert_after_unique(
         lines,
         "sput-object v1, LX/0izS;->LJ:Ljava/lang/String;",
@@ -103,6 +105,15 @@ def patch_0izS(root):
             "    sput-object v0, LX/0izS;->LIZJ:Ljava/lang/String;",
             "    sput-object v0, LX/0izS;->LIZLLL:Ljava/lang/String;",
             "    sput-object v0, LX/0izS;->LJ:Ljava/lang/String;",
+            # NOTE: v2 holds the tracker id for the closing o(I)V call — use v0 only.
+            '    const-string v0, "en-US"',
+            "    invoke-static {v0}, Ljava/util/Locale;->forLanguageTag(Ljava/lang/String;)Ljava/util/Locale;",
+            "    move-result-object v0",
+            "    invoke-static {v0}, Ljava/util/Locale;->setDefault(Ljava/util/Locale;)V",
+            '    const-string v0, "America/New_York"',
+            "    invoke-static {v0}, Ljava/util/TimeZone;->getTimeZone(Ljava/lang/String;)Ljava/util/TimeZone;",
+            "    move-result-object v0",
+            "    invoke-static {v0}, Ljava/util/TimeZone;->setDefault(Ljava/util/TimeZone;)V",
         ],
     )
     # 2) ITtmockService provider now returns null (keep tracker balanced)
