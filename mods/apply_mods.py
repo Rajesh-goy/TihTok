@@ -157,6 +157,89 @@ def patch_geoblock(root):
     write(p, lines)
 
 
+def replace_method_block(lines, start_sig, body):
+    """Replace the whole .method..end method block whose header contains start_sig.
+
+    The original header may declare the method `native` (Dex2C kits do);
+    a native method cannot have a body, so strip the `native` modifier.
+    """
+    s, e = find_method_range(lines, start_sig)
+    header = " ".join(w for w in lines[s].split() if w != "native")
+    indent = "    "
+    new_block = [header, f"{indent}.locals {body['locals']}", ""] + body["lines"] + ["", ".end method"]
+    lines[s:e + 1] = new_block
+    print(f"replaced method block: {start_sig}")
+
+
+def stub_void_method(lines, start_sig):
+    replace_method_block(lines, start_sig, {
+        "locals": 0,
+        "lines": ["    return-void"],
+    })
+
+
+def patch_modkit(root):
+    """Neutralize the injected mod-kit gate (update checker, popups, license
+    region gate) while keeping the load-bearing Dex2C native logic intact.
+
+    The kit converts real TikTok classes to native code (Dex2C inside
+    libmhmd.so) — MN312001/Hidden0 must stay. The gate methods are native
+    IMPLS reachable from native callers; replacing their declarations with
+    Java no-op bodies removes the logic but keeps call sites valid.
+    """
+    # 1) check.smali: kill the gate entry points.
+    p = os.path.join(root, "smali_classes37/mhmd/tiktok/utils/check.smali")
+    lines = read(p)
+    for sig in (
+        "isVerify(Landroid/app/Activity;)V",
+        "isPatch(Landroid/content/Context;)V",
+        "isBase64(Landroid/content/Context;)V",
+    ):
+        stub_void_method(lines, sig)
+    # convertStreamToString: return empty string instead of native impl
+    replace_method_block(
+        lines,
+        "convertStreamToString(Ljava/io/InputStream;)Ljava/lang/String;",
+        {"locals": 1, "lines": ["    const-string v0, \"\"", "    return-object v0"]},
+    )
+    # Skip native JNI registration for this class: its methods are Java stubs
+    # now, and ART can reject RegisterNatives targeting non-native methods.
+    stub_void_method(lines, "constructor <clinit>()V")
+    write(p, lines)
+
+    # 2) check$Link (AsyncTask): the update/gate fetch. Stub doInBackground
+    #    (return null String) and onPostExecute (no-op) for both bridge and
+    #    real signatures. Also skip its native registration (same ART concern).
+    p = os.path.join(root, "smali_classes37/mhmd/tiktok/utils/check$Link.smali")
+    lines = read(p)
+    stub_void_method(lines, "onPostExecute(Ljava/lang/String;)V")
+    stub_void_method(lines, "onPostExecute(Ljava/lang/Object;)V")
+    replace_method_block(
+        lines,
+        "doInBackground([Ljava/lang/Void;)Ljava/lang/String;",
+        {"locals": 1, "lines": ["    const/4 v0, 0x0", "    return-object v0"]},
+    )
+    replace_method_block(
+        lines,
+        "doInBackground([Ljava/lang/Object;)Ljava/lang/Object;",
+        {"locals": 1, "lines": ["    const/4 v0, 0x0", "    return-object v0"]},
+    )
+    stub_void_method(lines, "constructor <clinit>()V")
+    # access$ bridges were native synthetic; with registration skipped they
+    # must become plain Java or any caller would hit UnsatisfiedLinkError.
+    replace_method_block(
+        lines,
+        "access$a(Lmhmd/tiktok/utils/check$Link;)Ljava/lang/String;",
+        {"locals": 1, "lines": ["    const/4 v0, 0x0", "    return-object v0"]},
+    )
+    replace_method_block(
+        lines,
+        "access$b(Lmhmd/tiktok/utils/check$Link;)Landroid/content/Context;",
+        {"locals": 1, "lines": ["    const/4 v0, 0x0", "    return-object v0"]},
+    )
+    write(p, lines)
+
+
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else "decoded"
     if not os.path.isdir(root):
@@ -164,6 +247,7 @@ def main():
     patch_0izS(root)
     patch_08dR(root)
     patch_geoblock(root)
+    patch_modkit(root)
     print("All mods applied.")
 
 
