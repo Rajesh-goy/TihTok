@@ -1,0 +1,47 @@
+name: Decompile APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download APK from latest release
+        run: |
+          URL=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/latest \
+            | jq -r '.assets[] | select(.name == "Tihtok.apk") | .url')
+          echo "Asset URL: $URL"
+          curl -fSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/octet-stream" -o app.apk "$URL"
+          ls -lh app.apk
+
+      - name: Install apktool (latest release)
+        run: |
+          curl -fsSL -o apktool.jar "$(curl -fsSL https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r '.assets[] | select(.name | endswith(".jar")) | .browser_download_url')"
+          java -jar apktool.jar --version
+
+      - name: Decompile with apktool
+        run: |
+          java -jar apktool.jar d -f -o decoded app.apk
+          echo "Files: $(find decoded -type f | wc -l)"
+          du -sh decoded
+
+      - name: Tar decompiled source
+        run: tar --zstd -cf decoded.tar.zst decoded
+
+      - name: Upload decompiled output to release
+        run: |
+          UPLOAD_URL=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/latest \
+            | jq -r '.upload_url' | sed 's/{.*}//')
+          curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/zstd" --data-binary @decoded.tar.zst \
+            "${UPLOAD_URL}?name=decoded.tar.zst"

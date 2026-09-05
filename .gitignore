@@ -1,0 +1,5 @@
+*.apk
+decoded/
+decoded.tar.zst
+apktool.jar
+dist/
