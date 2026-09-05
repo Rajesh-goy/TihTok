@@ -27,8 +27,8 @@ jobs:
           curl -fsSL -o apktool.jar "$(curl -fsSL https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r '.assets[] | select(.name | endswith(".jar")) | .browser_download_url')"
           java -jar apktool.jar --version
 
-      - name: Decompile
-        run: java -jar apktool.jar d -f -o decoded app.apk
+      - name: Decompile (smali only, keep original resources)
+        run: java -jar apktool.jar d -f -r -o decoded app.apk
 
       - name: Apply mods (overlay mods/ onto decoded/)
         run: |
@@ -38,7 +38,7 @@ jobs:
             echo "No mods directory — building unmodded"
           fi
 
-      - name: Build with apktool
+      - name: Build with apktool (original resources.arsc preserved)
         run: |
           mkdir -p dist
           java -jar apktool.jar b -o dist/tihtok-modded.apk decoded
